@@ -13,6 +13,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 	options: {
 		maxClusterRadius: 80, //A cluster will cover at most this many pixels from its center
 		iconCreateFunction: null,
+		clusterStrategyFunction: null,
 
 		spiderfyOnMaxZoom: true,
 		showCoverageOnHover: true,
@@ -669,6 +670,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 
 	_generateInitialClusters: function () {
 		var maxZoom = this._map.getMaxZoom(),
+            strategy = this.options.clusterStrategyFunction,
 			radius = this.options.maxClusterRadius;
 
 		if (this.options.disableClusteringAtZoom) {
@@ -680,8 +682,8 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 
 		//Set up DistanceGrids for each zoom
 		for (var zoom = maxZoom; zoom >= 0; zoom--) {
-			this._gridClusters[zoom] = new L.DistanceGrid(radius);
-			this._gridUnclustered[zoom] = new L.DistanceGrid(radius);
+			this._gridClusters[zoom] = new L.DistanceGrid(radius, strategy);
+			this._gridUnclustered[zoom] = new L.DistanceGrid(radius, strategy);
 		}
 
 		this._topClusterLevel = new L.MarkerCluster(this, -1);
@@ -709,7 +711,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 			markerPoint = this._map.project(layer.getLatLng(), zoom); // calculate pixel position
 
 			//Try find a cluster close by
-			var closest = gridClusters[zoom].getNearObject(markerPoint);
+			var closest = gridClusters[zoom].getNearObject(markerPoint, zoom, layer);
 			if (closest) {
 				closest._addChild(layer);
 				layer.__parent = closest;
@@ -717,7 +719,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 			}
 
 			//Try find a marker close by to form a new cluster with
-			closest = gridUnclustered[zoom].getNearObject(markerPoint);
+			closest = gridUnclustered[zoom].getNearObject(markerPoint, zoom, layer);
 			if (closest) {
 				var parent = closest.__parent;
 				if (parent) {
@@ -1009,9 +1011,11 @@ L.MarkerCluster = L.Marker.extend({
 
 		if (a) {
 			this._addChild(a);
+            this.options.data = a.options.data;
 		}
 		if (b) {
 			this._addChild(b);
+            this.options.data = b.options.data;
 		}
 	},
 
@@ -1340,11 +1344,12 @@ L.MarkerCluster = L.Marker.extend({
 
 
 
-L.DistanceGrid = function (cellSize) {
+L.DistanceGrid = function (cellSize, strategy) {
 	this._cellSize = cellSize;
+    this._strategy = strategy;
 	this._sqCellSize = cellSize * cellSize;
 	this._grid = {};
-	this._objectPoint = { };
+	this._objectPoint = {};
 };
 
 L.DistanceGrid.prototype = {
@@ -1358,7 +1363,6 @@ L.DistanceGrid.prototype = {
 		    stamp = L.Util.stamp(obj);
 
 		this._objectPoint[stamp] = point;
-
 		cell.push(obj);
 	},
 
@@ -1414,7 +1418,7 @@ L.DistanceGrid.prototype = {
 		}
 	},
 
-	getNearObject: function (point) {
+	getNearObject: function (point, zoom, layer) {
 		var x = this._getCoord(point.x),
 		    y = this._getCoord(point.y),
 		    i, j, k, row, cell, len, obj, dist,
@@ -1434,8 +1438,10 @@ L.DistanceGrid.prototype = {
 							obj = cell[k];
 							dist = this._sqDist(objectPoint[L.Util.stamp(obj)], point);
 							if (dist < closestDistSq) {
-								closestDistSq = dist;
-								closest = obj;
+                                if (!this._strategy || this._strategy(layer, obj, zoom)) {
+								    closestDistSq = dist;
+								    closest = obj;
+                                }
 							}
 						}
 					}
@@ -1485,13 +1491,26 @@ Retrieved from: http://en.literateprograms.org/Quickhull_(Javascript)?oldid=1843
 
 (function () {
 	L.QuickHull = {
+
+		/*
+		 * @param {Object} cpt a point to be measured from the baseline
+		 * @param {Array} bl the baseline, as represented by a two-element
+		 *   array of latlng objects.
+		 * @returns {Number} an approximate distance measure
+		 */
 		getDistant: function (cpt, bl) {
 			var vY = bl[1].lat - bl[0].lat,
 				vX = bl[0].lng - bl[1].lng;
 			return (vX * (cpt.lat - bl[0].lat) + vY * (cpt.lng - bl[0].lng));
 		},
 
-
+		/*
+		 * @param {Array} baseLine a two-element array of latlng objects
+		 *   representing the baseline to project from
+		 * @param {Array} latLngs an array of latlng objects
+		 * @returns {Object} the maximum point and all new points to stay
+		 *   in consideration for the hull.
+		 */
 		findMostDistantPointFromBaseLine: function (baseLine, latLngs) {
 			var maxD = 0,
 				maxPt = null,
@@ -1512,11 +1531,19 @@ Retrieved from: http://en.literateprograms.org/Quickhull_(Javascript)?oldid=1843
 					maxD = d;
 					maxPt = pt;
 				}
-
 			}
-			return { 'maxPoint': maxPt, 'newPoints': newPoints };
+
+			return { maxPoint: maxPt, newPoints: newPoints };
 		},
 
+
+		/*
+		 * Given a baseline, compute the convex hull of latLngs as an array
+		 * of latLngs.
+		 *
+		 * @param {Array} latLngs
+		 * @returns {Array}
+		 */
 		buildConvexHull: function (baseLine, latLngs) {
 			var convexHullBaseLines = [],
 				t = this.findMostDistantPointFromBaseLine(baseLine, latLngs);
@@ -1536,8 +1563,15 @@ Retrieved from: http://en.literateprograms.org/Quickhull_(Javascript)?oldid=1843
 			}
 		},
 
+		/*
+		 * Given an array of latlngs, compute a convex hull as an array
+		 * of latlngs
+		 *
+		 * @param {Array} latLngs
+		 * @returns {Array}
+		 */
 		getConvexHull: function (latLngs) {
-			//find first baseline
+			// find first baseline
 			var maxLat = false, minLat = false,
 				maxPt = null, minPt = null,
 				i;
@@ -1581,6 +1615,7 @@ L.MarkerCluster.include({
 		return hullLatLng;
 	}
 });
+
 
 //This code is 100% based on https://github.com/jawj/OverlappingMarkerSpiderfier-Leaflet
 //Huge thanks to jawj for implementing it first to make my job easy :-)

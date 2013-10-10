@@ -8,6 +8,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 	options: {
 		maxClusterRadius: 80, //A cluster will cover at most this many pixels from its center
 		iconCreateFunction: null,
+		clusterStrategyFunction: null,
 
 		spiderfyOnMaxZoom: true,
 		showCoverageOnHover: true,
@@ -664,6 +665,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 
 	_generateInitialClusters: function () {
 		var maxZoom = this._map.getMaxZoom(),
+            strategy = this.options.clusterStrategyFunction,
 			radius = this.options.maxClusterRadius;
 
 		if (this.options.disableClusteringAtZoom) {
@@ -675,8 +677,8 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 
 		//Set up DistanceGrids for each zoom
 		for (var zoom = maxZoom; zoom >= 0; zoom--) {
-			this._gridClusters[zoom] = new L.DistanceGrid(radius);
-			this._gridUnclustered[zoom] = new L.DistanceGrid(radius);
+			this._gridClusters[zoom] = new L.DistanceGrid(radius, strategy);
+			this._gridUnclustered[zoom] = new L.DistanceGrid(radius, strategy);
 		}
 
 		this._topClusterLevel = new L.MarkerCluster(this, -1);
@@ -704,7 +706,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 			markerPoint = this._map.project(layer.getLatLng(), zoom); // calculate pixel position
 
 			//Try find a cluster close by
-			var closest = gridClusters[zoom].getNearObject(markerPoint);
+			var closest = gridClusters[zoom].getNearObject(markerPoint, zoom, layer);
 			if (closest) {
 				closest._addChild(layer);
 				layer.__parent = closest;
@@ -712,7 +714,7 @@ L.MarkerClusterGroup = L.FeatureGroup.extend({
 			}
 
 			//Try find a marker close by to form a new cluster with
-			closest = gridUnclustered[zoom].getNearObject(markerPoint);
+			closest = gridUnclustered[zoom].getNearObject(markerPoint, zoom, layer);
 			if (closest) {
 				var parent = closest.__parent;
 				if (parent) {

@@ -16,9 +16,11 @@ L.MarkerCluster = L.Marker.extend({
 
 		if (a) {
 			this._addChild(a);
+            this.options.data = a.options.data;
 		}
 		if (b) {
 			this._addChild(b);
+            this.options.data = b.options.data;
 		}
 	},
 

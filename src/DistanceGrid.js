@@ -1,9 +1,10 @@
 
-L.DistanceGrid = function (cellSize) {
+L.DistanceGrid = function (cellSize, strategy) {
 	this._cellSize = cellSize;
+    this._strategy = strategy;
 	this._sqCellSize = cellSize * cellSize;
 	this._grid = {};
-	this._objectPoint = { };
+	this._objectPoint = {};
 };
 
 L.DistanceGrid.prototype = {
@@ -17,7 +18,6 @@ L.DistanceGrid.prototype = {
 		    stamp = L.Util.stamp(obj);
 
 		this._objectPoint[stamp] = point;
-
 		cell.push(obj);
 	},
 
@@ -73,7 +73,7 @@ L.DistanceGrid.prototype = {
 		}
 	},
 
-	getNearObject: function (point) {
+	getNearObject: function (point, zoom, layer) {
 		var x = this._getCoord(point.x),
 		    y = this._getCoord(point.y),
 		    i, j, k, row, cell, len, obj, dist,
@@ -93,8 +93,10 @@ L.DistanceGrid.prototype = {
 							obj = cell[k];
 							dist = this._sqDist(objectPoint[L.Util.stamp(obj)], point);
 							if (dist < closestDistSq) {
-								closestDistSq = dist;
-								closest = obj;
+                                if (!this._strategy || this._strategy(layer, obj, zoom)) {
+								    closestDistSq = dist;
+								    closest = obj;
+                                }
 							}
 						}
 					}
